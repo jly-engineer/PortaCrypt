@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PortaCrypt - Portable File Encryption</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- JSZip for creating zip files in the browser -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'brand-primary': '#4f46e5',
+                        'brand-secondary': '#7c3aed',
+                        'gray-dark': '#111827',
+                        'gray-medium': '#1f2937',
+                        'gray-light': '#4b5563',
+                        'gray-lighter': '#9ca3af',
+                        'accent-green': '#10b981',
+                        'accent-red': '#ef4444',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-dark">
+    <div class="min-h-screen bg-gray-dark text-gray-lighter flex items-center justify-center p-4 font-sans">
+        <div class="w-full max-w-2xl mx-auto">
+            <header class="text-center mb-8">
+                <h1 class="text-4xl md:text-5xl font-bold text-white tracking-tight">
+                    Porta<span class="text-brand-primary">Crypt</span>
+                </h1>
+                <p class="text-gray-400 mt-2">Secure File Encryption, Right In Your Browser.</p>
+            </header>
+
+            <main class="bg-gray-medium p-6 sm:p-8 rounded-2xl shadow-2xl border border-gray-light/20">
+                <!-- Mode Selector -->
+                <div class="flex bg-gray-dark rounded-lg p-1 mb-6">
+                    <button id="encryptBtn" class="flex-1 py-2 px-4 rounded-md text-white bg-brand-primary font-medium transition-all">
+                        Encrypt
+                    </button>
+                    <button id="decryptBtn" class="flex-1 py-2 px-4 rounded-md text-gray-400 hover:text-white transition-all">
+                        Decrypt
+                    </button>
+                </div>
+
+                <div class="space-y-6">
+                    <!-- File Upload Area -->
+                    <div id="drop-zone" class="border-2 border-dashed border-gray-light rounded-lg p-8 text-center transition-colors">
+                        <div class="flex justify-center items-center gap-4 mb-4">
+                            <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                        </div>
+                        <p id="file-instructions" class="font-semibold mb-2">Drag & drop files or a folder here</p>
+                        <p class="text-sm text-gray-400 mb-4">or use the buttons below</p>
+                         <p id="files-selected" class="hidden font-semibold text-accent-green"></p>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <label class="bg-gray-light/30 hover:bg-gray-light/60 text-gray-300 font-bold py-2 px-4 rounded-lg transition-colors cursor-pointer">
+                                Select File(s)
+                                <input type="file" id="fileInput" multiple class="hidden">
+                            </label>
+                            <label class="bg-gray-light/30 hover:bg-gray-light/60 text-gray-300 font-bold py-2 px-4 rounded-lg transition-colors cursor-pointer">
+                                Select Folder
+                                <input type="file" id="folderInput" webkitdirectory directory multiple class="hidden">
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Password Input -->
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-300 mb-2">Password</label>
+                        <input type="password" id="password"
+                               class="w-full px-4 py-3 bg-gray-dark border border-gray-light rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-transparent"
+                               placeholder="Enter your password (min 8 characters)">
+                    </div>
+
+                    <!-- Error Display -->
+                    <div id="errorDisplay" class="hidden text-center bg-red-900/50 border border-accent-red text-red-300 p-3 rounded-lg text-sm"></div>
+
+                    <!-- Process Button -->
+                    <button id="processBtn" disabled
+                            class="w-full flex items-center justify-center gap-3 text-lg font-semibold px-6 py-4 rounded-xl transition-all duration-300 ease-in-out bg-gray-light cursor-not-allowed text-gray-400">
+                        <svg class="w-5 h-5" id="btn-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                        </svg>
+                        <span id="btn-text">Select files and enter password</span>
+                    </button>
+
+                    <div id="passwordWarning" class="hidden text-center text-yellow-400 text-sm">
+                        Password must be at least 8 characters long.
+                    </div>
+                </div>
+            </main>
+
+            <footer class="text-center mt-8 text-gray-500 text-sm">
+                <p>&copy; 2025 JoetechNinja. All operations are performed locally on your device.</p>
+            </footer>
+        </div>
+    </div>
+
+    <script>
+        // --- START: Client-Side Crypto Logic (Replaces app.py) ---
+
+        // Constants matching the original Python version for compatibility
+        const SALT_SIZE_BYTES = 16;
+        const PBKDF2_ITERATIONS = 100000;
+        const KEY_LENGTH_BITS = 256; // 32 bytes * 8 bits
+        const IV_SIZE_BYTES = 12;
+        const TAG_LENGTH_BYTES = 16; // AES-GCM uses a 128-bit (16-byte) tag
+
+        /**
+         * Derives a cryptographic key from a password and salt using PBKDF2.
+         * @param {string} password The user's password.
+         * @param {Uint8Array} salt A random salt.
+         * @returns {Promise<CryptoKey>} The derived key for use with AES-GCM.
+         */
+        async function deriveKey(password, salt) {
+            const baseKey = await crypto.subtle.importKey(
+                "raw",
+                new TextEncoder().encode(password),
+                "PBKDF2",
+                false,
+                ["deriveKey"]
+            );
+            return crypto.subtle.deriveKey(
+                {
+                    name: "PBKDF2",
+                    salt: salt,
+                    iterations: PBKDF2_ITERATIONS,
+                    hash: "SHA-256",
+                },
+                baseKey,
+                { name: "AES-GCM", length: KEY_LENGTH_BITS },
+                true,
+                ["encrypt", "decrypt"]
+            );
+        }
+
+        /**
+         * Encrypts file data using AES-GCM.
+         * @param {ArrayBuffer} fileData The raw file data.
+         * @param {string} password The encryption password.
+         * @returns {Promise<Uint8Array>} The combined [salt + iv + tag + encrypted_data].
+         */
+        async function encryptFile(fileData, password) {
+            const salt = crypto.getRandomValues(new Uint8Array(SALT_SIZE_BYTES));
+            const iv = crypto.getRandomValues(new Uint8Array(IV_SIZE_BYTES));
+            const key = await deriveKey(password, salt);
+
+            const encrypted = await crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv },
+                key,
+                fileData
+            );
+
+            // Web Crypto API returns encrypted data and the authentication tag separately.
+            // We need to extract the tag from the end of the encrypted buffer.
+            const encryptedContent = new Uint8Array(encrypted.slice(0, encrypted.byteLength - TAG_LENGTH_BYTES));
+            const tag = new Uint8Array(encrypted.slice(encrypted.byteLength - TAG_LENGTH_BYTES));
+            
+            // Combine in the same order as the Python script: salt + iv + tag + data
+            const combined = new Uint8Array(salt.length + iv.length + tag.length + encryptedContent.length);
+            combined.set(salt, 0);
+            combined.set(iv, salt.length);
+            combined.set(tag, salt.length + iv.length);
+            combined.set(encryptedContent, salt.length + iv.length + tag.length);
+
+            return combined;
+        }
+
+        /**
+         * Decrypts file data using AES-GCM.
+         * @param {ArrayBuffer} encryptedData The combined [salt + iv + tag + encrypted_data].
+         * @param {string} password The decryption password.
+         * @returns {Promise<Uint8Array>} The decrypted raw file data.
+         */
+        async function decryptFile(encryptedData, password) {
+            const data = new Uint8Array(encryptedData);
+            
+            // Extract components in the correct order and size
+            const salt = data.slice(0, SALT_SIZE_BYTES);
+            const iv = data.slice(SALT_SIZE_BYTES, SALT_SIZE_BYTES + IV_SIZE_BYTES);
+            const tag = data.slice(SALT_SIZE_BYTES + IV_SIZE_BYTES, SALT_SIZE_BYTES + IV_SIZE_BYTES + TAG_LENGTH_BYTES);
+            const encryptedContent = data.slice(SALT_SIZE_BYTES + IV_SIZE_BYTES + TAG_LENGTH_BYTES);
+
+            const key = await deriveKey(password, salt);
+            
+            // Web Crypto API needs the tag combined with the ciphertext for decryption.
+            const combinedContentAndTag = new Uint8Array(encryptedContent.length + tag.length);
+            combinedContentAndTag.set(encryptedContent, 0);
+            combinedContentAndTag.set(tag, encryptedContent.length);
+            
+            const decrypted = await crypto.subtle.decrypt(
+                { name: "AES-GCM", iv: iv },
+                key,
+                combinedContentAndTag
+            );
+            
+            return new Uint8Array(decrypted);
+        }
+
+        // --- END: Client-Side Crypto Logic ---
+
+        let currentMode = 'encrypt';
+        let selectedFiles = [];
+
+        // UI Element References
+        const encryptBtn = document.getElementById('encryptBtn');
+        const decryptBtn = document.getElementById('decryptBtn');
+        const fileInput = document.getElementById('fileInput');
+        const folderInput = document.getElementById('folderInput');
+        const passwordInput = document.getElementById('password');
+        const processBtn = document.getElementById('processBtn');
+        const passwordWarning = document.getElementById('passwordWarning');
+        const errorDisplay = document.getElementById('errorDisplay');
+        const dropZone = document.getElementById('drop-zone');
+        const fileInstructions = document.getElementById('file-instructions');
+        const filesSelectedText = document.getElementById('files-selected');
+
+        // Mode switching
+        encryptBtn.addEventListener('click', () => setMode('encrypt'));
+        decryptBtn.addEventListener('click', () => setMode('decrypt'));
+
+        function setMode(mode) {
+            currentMode = mode;
+            encryptBtn.classList.toggle('bg-brand-primary', mode === 'encrypt');
+            encryptBtn.classList.toggle('text-white', mode === 'encrypt');
+            encryptBtn.classList.toggle('text-gray-400', mode !== 'encrypt');
+            
+            decryptBtn.classList.toggle('bg-brand-primary', mode === 'decrypt');
+            decryptBtn.classList.toggle('text-white', mode === 'decrypt');
+            decryptBtn.classList.toggle('text-gray-400', mode !== 'decrypt');
+            
+            updateButtonState();
+        }
+
+        // File selection and Drag & Drop
+        fileInput.addEventListener('change', handleFileSelect);
+        folderInput.addEventListener('change', handleFileSelect);
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-brand-primary', 'bg-gray-dark');
+        });
+        dropZone.addEventListener('dragleave', () => {
+             dropZone.classList.remove('border-brand-primary', 'bg-gray-dark');
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-brand-primary', 'bg-gray-dark');
+            const files = e.dataTransfer.files;
+            if (files.length) {
+                selectedFiles = Array.from(files);
+                updateButtonState();
+            }
+        });
+        
+        function handleFileSelect(event) {
+            selectedFiles = Array.from(event.target.files);
+            updateButtonState();
+            event.target.value = ''; // Reset input to allow re-selecting the same file
+        }
+
+        passwordInput.addEventListener('input', updateButtonState);
+
+        function updateButtonState() {
+            const password = passwordInput.value;
+            const hasFiles = selectedFiles.length > 0;
+            const validPassword = password.length >= 8;
+
+            if (hasFiles) {
+                fileInstructions.classList.add('hidden');
+                filesSelectedText.classList.remove('hidden');
+                filesSelectedText.textContent = `${selectedFiles.length} file(s) selected.`;
+            } else {
+                 fileInstructions.classList.remove('hidden');
+                 filesSelectedText.classList.add('hidden');
+            }
+            
+            if (hasFiles && validPassword) {
+                processBtn.disabled = false;
+                processBtn.className = 'w-full flex items-center justify-center gap-3 text-lg font-semibold px-6 py-4 rounded-xl transition-all duration-300 ease-in-out bg-brand-primary hover:bg-brand-secondary text-white shadow-lg hover:shadow-brand-secondary/40 transform hover:-translate-y-1';
+                passwordWarning.classList.add('hidden');
+            } else {
+                processBtn.disabled = true;
+                processBtn.className = 'w-full flex items-center justify-center gap-3 text-lg font-semibold px-6 py-4 rounded-xl transition-all duration-300 ease-in-out bg-gray-light cursor-not-allowed text-gray-400';
+                
+                if (password.length > 0 && password.length < 8) {
+                    passwordWarning.classList.remove('hidden');
+                } else {
+                    passwordWarning.classList.add('hidden');
+                }
+            }
+            
+            updateButtonText();
+        }
+
+        function updateButtonText() {
+            const btnIcon = document.getElementById('btn-icon');
+            const btnText = document.getElementById('btn-text');
+            const hasFiles = selectedFiles.length > 0;
+            const validPassword = passwordInput.value.length >= 8;
+
+            if (!hasFiles || !validPassword) {
+                 btnText.textContent = 'Select file(s) and enter password';
+                 return;
+            }
+
+            if (currentMode === 'encrypt') {
+                btnIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>';
+                btnText.textContent = 'Encrypt & Download';
+            } else {
+                btnIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 9V3.414A1 1 0 0011.586 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2v-8m-7 4h5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2"></path>';
+                btnText.textContent = 'Decrypt & Download';
+            }
+        }
+        
+        // --- Main Processing Logic ---
+        processBtn.addEventListener('click', handleProcess);
+
+        async function handleProcess() {
+            if (processBtn.disabled) return;
+
+            setLoading(true);
+            hideError();
+            
+            const password = passwordInput.value;
+            const processFunc = currentMode === 'encrypt' ? encryptFile : decryptFile;
+
+            try {
+                if (selectedFiles.length === 1) {
+                    await processSingleFile(selectedFiles[0], password, processFunc);
+                } else {
+                    await processMultipleFiles(selectedFiles, password, processFunc);
+                }
+            } catch (e) {
+                console.error(e);
+                showError(`Processing failed: ${e.message}. If decrypting, please check your password.`);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        async function processSingleFile(file, password, processFunc) {
+            const fileData = await file.arrayBuffer();
+            const processedData = await processFunc(fileData, password);
+            const blob = new Blob([processedData], { type: 'application/octet-stream' });
+            
+            let downloadName = file.name;
+            if (currentMode === 'encrypt') {
+                downloadName += '.enc';
+            } else if (downloadName.endsWith('.enc')) {
+                downloadName = downloadName.slice(0, -4);
+            } else {
+                downloadName = `decrypted_${downloadName}`;
+            }
+            
+            triggerDownload(blob, downloadName);
+        }
+
+        async function processMultipleFiles(files, password, processFunc) {
+            const zip = new JSZip();
+            
+            for (const file of files) {
+                const fileData = await file.arrayBuffer();
+                const processedData = await processFunc(fileData, password);
+
+                let filename = file.name;
+                if (currentMode === 'encrypt') {
+                    filename += '.enc';
+                } else if (filename.endsWith('.enc')) {
+                    filename = filename.slice(0, -4);
+                } else {
+                    filename = `decrypted_${filename}`;
+                }
+
+                zip.file(filename, processedData);
+            }
+
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+            const archiveName = `${currentMode}ed-files.zip`;
+            triggerDownload(zipBlob, archiveName);
+        }
+
+        function triggerDownload(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function setLoading(isLoading) {
+            const btnText = document.getElementById('btn-text');
+            if (isLoading) {
+                processBtn.disabled = true;
+                btnText.textContent = 'Processing...';
+            } else {
+                updateButtonState(); // Restore original state and text
+            }
+        }
+
+        function showError(message) {
+            errorDisplay.textContent = message;
+            errorDisplay.classList.remove('hidden');
+        }
+
+        function hideError() {
+            errorDisplay.classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
